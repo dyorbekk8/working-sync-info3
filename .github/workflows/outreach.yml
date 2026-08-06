@@ -1,0 +1,33 @@
+name: Daily DM Outreach
+
+on:
+  schedule:
+    - cron: '0 5 * * *' # Toshkent vaqti bilan har kuni soat 10:00 da ishlaydi
+  workflow_dispatch: # Istalgan vaqtda qo'lda yoqish tugmasi
+
+jobs:
+  run-outreach:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code'ni yuklash
+        uses: actions/checkout@v4
+
+      - name: Python'ni sozlash
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Kutubxonalarni o'rnatish
+        run: |
+          python -m pip install --upgrade pip
+          pip install playwright gspread oauth2client
+          playwright install chromium
+
+      - name: Botni ishga tushirish
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          PROXY_SERVER: ${{ secrets.PROXY_SERVER }}
+          X_COOKIES: ${{ secrets.X_COOKIES }}
+          INSTA_COOKIES: ${{ secrets.INSTA_COOKIES }}
+          DISCORD_COOKIES: ${{ secrets.DISCORD_COOKIES }}
+        run: python main.py
