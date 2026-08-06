@@ -1,13 +1,14 @@
-name: Daily DM Outreach
+name: 24/7 Autonomous Outreach Engine
 
 on:
   schedule:
-    - cron: '0 5 * * *' # Toshkent vaqti bilan har kuni soat 10:00 da ishlaydi
-  workflow_dispatch: # Istalgan vaqtda qo'lda yoqish tugmasi
+    - cron: '0 */6 * * *' # Birmasdan o'chib qolsa, har 6 soatda qayta ishlab turadi
+  workflow_dispatch:
 
 jobs:
   run-outreach:
     runs-on: ubuntu-latest
+    timeout-minutes: 360 # Maksimal ruxsat berilgan 6 soatlik taymer
     steps:
       - name: Code'ni yuklash
         uses: actions/checkout@v4
@@ -23,7 +24,7 @@ jobs:
           pip install playwright gspread oauth2client
           playwright install chromium
 
-      - name: Botni ishga tushirish
+      - name: 24/7 Botni ishga tushirish
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
           PROXY_SERVER: ${{ secrets.PROXY_SERVER }}
