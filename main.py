@@ -30,7 +30,17 @@ def parse_cookies(env_name):
         log(f"⚠️ LOG: {env_name} o'zgaruvchisi topilmadi yoki bo'sh!")
         return []
     parsed = json.loads(raw_data)
-    return parsed if isinstance(parsed, list) else parsed.get("cookies", [])
+    cookies = parsed if isinstance(parsed, list) else parsed.get("cookies", [])
+    
+    # Playwright sameSite formatini to'g'rilash (Strict, Lax, None)
+    for cookie in cookies:
+        if isinstance(cookie, dict) and "sameSite" in cookie and cookie["sameSite"]:
+            val = str(cookie["sameSite"]).capitalize()
+            if val in ["Strict", "Lax", "None"]:
+                cookie["sameSite"] = val
+            else:
+                del cookie["sameSite"]
+    return cookies
 
 def clean_username(user):
     return str(user).replace("@", "").strip().lower()
