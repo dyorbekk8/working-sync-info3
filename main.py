@@ -143,7 +143,7 @@ def run_outreach_loop():
 
                             # PAUZA INTERVALI
                             wait_time = random.randint(MIN_DELAY, MAX_DELAY)
-                            print(f"✅ LOG [Muvaffaqiyatli]: DM yuborildi!")
+                            print(f"✅ LOG [Muvaffaqiyattli]: DM yuborildi!")
                             print(f"⏳ LOG [Pauza]: Akkaunt xavfsizligi uchun {wait_time // 60} daqiqa ({wait_time} sek) kutilmoqda...\n")
                             time.sleep(wait_time)
                         else:
