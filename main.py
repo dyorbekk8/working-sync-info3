@@ -79,6 +79,48 @@ def increment_today_sent(platform):
             log(f"📈 LOG: {platform} hisoblagichi oshirildi: {current_sent + 1}")
             break
 
+def send_message_x(page, user, message_text):
+    clean_user = clean_username(user)
+    log(f"🌐 LOG: X.com/messages/{clean_user} ochilmoqda...")
+    page.goto(f"https://x.com/messages/{clean_user}", wait_until="domcontentloaded", timeout=30000)
+    page.wait_for_timeout(3000)
+    
+    # DM TextInput elementini topish
+    msg_selector = '[data-testid="dmComposerTextInput"]'
+    page.wait_for_selector(msg_selector, timeout=15000)
+    page.fill(msg_selector, message_text)
+    page.wait_for_timeout(1000)
+    
+    # Send button elementini bosish yoki Enter tugmasi
+    send_btn = page.query_selector('[data-testid="dmComposerSendButton"]')
+    if send_btn and send_btn.is_enabled():
+        send_btn.click()
+    else:
+        page.keyboard.press("Enter")
+    page.wait_for_timeout(3000)
+
+def send_message_instagram(page, user, message_text):
+    clean_user = clean_username(user)
+    log(f"🌐 LOG: Instagram.com/direct/t/{clean_user}/ ochilmoqda...")
+    page.goto(f"https://www.instagram.com/direct/t/{clean_user}/", wait_until="domcontentloaded", timeout=30000)
+    page.wait_for_timeout(4000)
+    
+    # Pop-up (Not Now / Notifications) chiqqan bo'lsa yopish
+    try:
+        not_now_btn = page.query_selector('button:has-text("Not Now"), button:has-text("Сейчас не")')
+        if not_now_btn:
+            not_now_btn.click()
+            page.wait_for_timeout(1000)
+    except Exception:
+        pass
+        
+    msg_selector = 'div[contenteditable="true"], textarea[placeholder*="Message"]'
+    page.wait_for_selector(msg_selector, timeout=15000)
+    page.fill(msg_selector, message_text)
+    page.wait_for_timeout(1000)
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(3000)
+
 def run_outreach_loop():
     log("\n==================================================")
     log("🚀 24/7 Lightweight Outreach Engine Started...")
@@ -124,6 +166,7 @@ def run_outreach_loop():
                         platform = str(row["platform"]).upper().strip()
                         user = str(row["username"]).strip()
                         clean_user = clean_username(user)
+                        message_text = str(row.get("message", "")).strip()
 
                         log(f"\n👉 LOG: Qator #{idx} tekshirilmoqda: User={user} | Platform={platform}")
 
@@ -131,6 +174,11 @@ def run_outreach_loop():
                             log(f"⏭️ LOG [DUPLICATE]: {user} allaqachon mavjud! O'tkazib yuborildi.")
                             leads_sheet.update_cell(idx, 4, "SKIPPED_DUPLICATE")
                             leads_sheet.update_cell(idx, 5, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                            continue
+
+                        if not message_text:
+                            log(f"⚠️ LOG [BO'SH XABAR]: {user} uchun 'message' ustuni bo'sh. SKIPPED.")
+                            leads_sheet.update_cell(idx, 4, "SKIPPED_NO_MESSAGE")
                             continue
 
                         if can_send(platform):
@@ -142,34 +190,38 @@ def run_outreach_loop():
                                 context.add_cookies(cookies)
                             
                             page = context.new_page()
-                            # 30 soniyadan ortiq kuttirmaslik uchun timeout qo'shildi
-                            page.set_default_timeout(30000) 
+                            page.set_default_timeout(30000)
 
                             try:
                                 if platform == "X":
-                                    log(f"🌐 LOG: X.com/messages/{clean_user} ochilmoqda...")
-                                    page.goto(f"https://x.com/messages/{clean_user}", wait_until="domcontentloaded", timeout=30000)
-                                    page.wait_for_timeout(3000)
+                                    send_message_x(page, user, message_text)
                                 elif platform == "INSTAGRAM":
-                                    log(f"🌐 LOG: Instagram.com/direct/t/{clean_user}/ ochilmoqda...")
-                                    page.goto(f"https://www.instagram.com/direct/t/{clean_user}/", wait_until="domcontentloaded", timeout=30000)
-                                    page.wait_for_timeout(3000)
-                            except Exception as page_err:
-                                log(f"⚠️ LOG [Net Timeout]: Sahifa yuklanishida sekinlik bo'ldi, lekin davom etilmoqda: {page_err}")
+                                    send_message_instagram(page, user, message_text)
+                                else:
+                                    log(f"⚠️ LOG: Noma'lum platforma ({platform}), o'tkazib yuborildi.")
+                                    leads_sheet.update_cell(idx, 4, "SKIPPED_UNKNOWN_PLATFORM")
+                                    context.close()
+                                    continue
 
-                            context.close()
+                                # Faqat muvaffaqiyatli yuborilganda SENT belgilash
+                                leads_sheet.update_cell(idx, 4, "SENT")
+                                leads_sheet.update_cell(idx, 5, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                                
+                                sent_usernames.add(clean_user)
+                                increment_today_sent(platform)
+                                processed_in_this_pass = True
 
-                            leads_sheet.update_cell(idx, 4, "SENT")
-                            leads_sheet.update_cell(idx, 5, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                            
-                            sent_usernames.add(clean_user)
-                            increment_today_sent(platform)
-                            processed_in_this_pass = True
+                                wait_time = random.randint(MIN_DELAY, MAX_DELAY)
+                                log(f"✅ LOG: {user} ga xabar muvaffaqiyatli yuborildi!")
+                                log(f"⏳ LOG [Pauza]: Keyingi harakatgacha {wait_time // 60} daqiqa kutilmoqda...\n")
+                                context.close()
+                                time.sleep(wait_time)
 
-                            wait_time = random.randint(MIN_DELAY, MAX_DELAY)
-                            log(f"✅ LOG: Muvaffaqiyatli bajarildi!")
-                            log(f"⏳ LOG [Pauza]: Keyingi harakatgacha {wait_time // 60} daqiqa kutilmoqda...\n")
-                            time.sleep(wait_time)
+                            except Exception as send_err:
+                                log(f"❌ LOG [XATOLIK - YUBORILMADI]: {user} uchun xabar yuborishda xato: {send_err}")
+                                leads_sheet.update_cell(idx, 4, "FAILED")
+                                leads_sheet.update_cell(idx, 5, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                                context.close()
                         else:
                             log(f"🛑 LOG [Limit To'lgan]: Bugun {platform} uchun limit yetarli emas. Skipped: {user}")
 
