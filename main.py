@@ -3,6 +3,7 @@ import json
 import time
 import random
 from datetime import datetime, date
+import requests
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from playwright.sync_api import sync_playwright
@@ -46,7 +47,6 @@ def clean_username(user):
     return str(user).replace("@", "").strip().lower()
 
 def fetch_and_sync_limits():
-    """Limitlarni 1 marta o'qib, kerak bo'lsa kunlik reset qiladi va xotirada qaytaradi."""
     today_str = str(date.today())
     limits_data = limits_sheet.get_all_records()
     limits_map = {}
@@ -61,8 +61,7 @@ def fetch_and_sync_limits():
             sent = 0
             limits_sheet.update_cell(idx, 3, 0)
             limits_sheet.update_cell(idx, 4, today_str)
-            time.sleep(1) # API quota tejash uchun
-            log(f"🔄 LOG: {platform} uchun yangi kun limitlari yangilandi: Limit={limit}")
+            time.sleep(1)
 
         limits_map[platform] = {
             "row_idx": idx,
@@ -71,6 +70,43 @@ def fetch_and_sync_limits():
         }
     return limits_map
 
+# ==================== DISCORD API MESSAGING ====================
+def send_message_discord(user_id_or_name, message_text):
+    token = os.getenv("DISCORD_TOKEN")
+    if not token:
+        raise Exception("DISCORD_TOKEN o'zgaruvchisi Railway'da topilmadi!")
+
+    headers = {
+        "Authorization": token,
+        "Content-Type": "json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+
+    log(f"🌐 LOG [DISCORD]: {user_id_or_name} bilan DM kanal yaratilmoqda...")
+    # 1. User ID yoki Username orqali DM Kanal (DM Channel) ochish
+    dm_channel_req = requests.post(
+        "https://discord.com/api/v9/users/@me/channels",
+        headers={"Authorization": token, "Content-Type": "application/json"},
+        json={"recipient_id": user_id_or_name}
+    )
+
+    if dm_channel_req.status_code not in [200, 201]:
+        raise Exception(f"Discord DM kanal ochib bo'lmadi (Status {dm_channel_req.status_code}): {dm_channel_req.text}")
+
+    channel_id = dm_channel_req.json().get("id")
+
+    # 2. Xabarni yuborish
+    log(f"✉️ LOG [DISCORD]: DM Kanal (#{channel_id}) ga xabar yuborilmoqda...")
+    msg_req = requests.post(
+        f"https://discord.com/api/v9/channels/{channel_id}/messages",
+        headers={"Authorization": token, "Content-Type": "application/json"},
+        json={"content": message_text}
+    )
+
+    if msg_req.status_code not in [200, 201]:
+        raise Exception(f"Discord xabar yuborishda xatolik (Status {msg_req.status_code}): {msg_req.text}")
+
+# ==================== PLAYWRIGHT X & INSTAGRAM ====================
 def send_message_x(page, user, message_text):
     clean_user = clean_username(user)
     log(f"🌐 LOG: https://x.com/{clean_user} profiliga kirilmoqda...")
@@ -118,9 +154,10 @@ def send_message_instagram(page, user, message_text):
     page.keyboard.press("Enter")
     page.wait_for_timeout(3000)
 
+# ==================== MAIN OUTREACH ENGINE ====================
 def run_outreach_loop():
     log("\n==================================================")
-    log("🚀 24/7 Lightweight Outreach Engine Started...")
+    log("🚀 24/7 Lightweight Multi-Platform Outreach Engine Started...")
     log("==================================================\n")
     
     with sync_playwright() as p:
@@ -144,10 +181,7 @@ def run_outreach_loop():
         while True:
             try:
                 log(f"\n🔍 LOG [{datetime.now().strftime('%H:%M:%S')}]: Google Sheets qayta tekshirilmoqda...")
-                
-                # Limitlarni 1 marta xotiraga yuklaymiz (Google Sheets 429 xatoligini oldini oladi)
                 limits_map = fetch_and_sync_limits()
-                
                 records = leads_sheet.get_all_records()
                 processed_in_this_pass = False
 
@@ -182,7 +216,6 @@ def run_outreach_loop():
                             time.sleep(1)
                             continue
 
-                        # Limitni local xotiradan tekshiramiz
                         plat_info = limits_map.get(platform)
                         if not plat_info:
                             log(f"⚠️ LOG: {platform} platformasi Sheet2 da topilmadi, o'tkazib yuborilmoqda.")
@@ -191,6 +224,35 @@ def run_outreach_loop():
                         log(f"📊 LOG [{platform}]: Bugun yuborildi={plat_info['sent']}/{plat_info['limit']}")
 
                         if plat_info['sent'] < plat_info['limit']:
+                            
+                            # DISCORD UCHUN ALOHIDA TEZKOR YO'L (BRAUZERSIZ)
+                            if platform == "DISCORD":
+                                try:
+                                    log(f"🚀 LOG: {user} ga DISCORD API orqali yuborish boshlandi...")
+                                    send_message_discord(user, message_text)
+                                    
+                                    leads_sheet.update_cell(idx, 4, "SENT")
+                                    leads_sheet.update_cell(idx, 5, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                                    
+                                    plat_info['sent'] += 1
+                                    limits_sheet.update_cell(plat_info['row_idx'], 3, plat_info['sent'])
+                                    log(f"📈 LOG: DISCORD hisoblagichi oshirildi: {plat_info['sent']}")
+
+                                    sent_usernames.add(clean_user)
+                                    processed_in_this_pass = True
+
+                                    wait_time = random.randint(MIN_DELAY, MAX_DELAY)
+                                    log(f"✅ LOG: {user} ga Discord xabar muvaffaqiyatli yuborildi!")
+                                    log(f"⏳ LOG [Pauza]: Keyingi harakatgacha {wait_time // 60} daqiqa kutilmoqda...\n")
+                                    time.sleep(wait_time)
+                                except Exception as disc_err:
+                                    log(f"❌ LOG [DISCORD XATOLIK]: {user} uchun xabar yuborilmadi: {disc_err}")
+                                    leads_sheet.update_cell(idx, 4, "FAILED")
+                                    leads_sheet.update_cell(idx, 5, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                                    time.sleep(1)
+                                continue
+
+                            # X VA INSTAGRAM UCHUN BRAUZER ORQALI YUBORISH
                             cookies = parse_cookies(f"{platform}_COOKIES")
                             if not cookies and platform in ["X", "INSTAGRAM"]:
                                 log(f"⚠️ LOG: {platform}_COOKIES topilmadi! O'tkazib yuborilmoqda.")
@@ -216,7 +278,6 @@ def run_outreach_loop():
                                     time.sleep(1)
                                     continue
 
-                                # Sheets va local limitlarni yangilash
                                 leads_sheet.update_cell(idx, 4, "SENT")
                                 leads_sheet.update_cell(idx, 5, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
                                 
