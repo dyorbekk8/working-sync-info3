@@ -145,76 +145,76 @@ def send_message_instagram(page, user, message_text):
     try:
         page.goto(f"https://www.instagram.com/{clean_user}/", wait_until="commit", timeout=25000)
     except Exception as e:
-        raise Exception(f"Instagram profiliga kirib bo'lmadi (Proxy sekin yoki profil o'chirilgan): {e}")
+        raise Exception(f"Instagram profiliga kirib bo'lmadi: {e}")
 
     page.wait_for_timeout(4000)
 
     # 1. DIAGNOSTIKA: Cookie va URL redirection tekshiruvi
     current_url = page.url
     if "accounts/login" in current_url:
-        raise Exception("INSTAGRAM_COOKIES eskirgan (Login sahifasiga otib yubordi). Railway Variable'da cookielarni yangilang!")
+        raise Exception("INSTAGRAM_COOKIES eskirgan! Railway Variable'da cookielarni yangilang.")
     if "challenge" in current_url:
-        raise Exception("Instagram akkauntingizga Verification / Captcha kelgan! Akkauntga brauzerda kirib yechish kerak.")
+        raise Exception("Instagram akkauntingizga Captcha kelgan! Brauzerda yechish kerak.")
 
-    # 2. Bildirishnoma va Pop-up'larni yopish
+    # 2. Pop-up'larni yopish (Ruscha va Inglizcha variantlar)
     try:
-        popup_close = page.query_selector('button:has-text("Not Now"), button:has-text("Сейчас не"), button:has-text("Cancel")')
+        popup_close = page.query_selector('button:has-text("Сейчас не"), button:has-text("Not Now"), button:has-text("Отмена"), button:has-text("Cancel")')
         if popup_close:
             popup_close.click()
             page.wait_for_timeout(1000)
     except Exception:
         pass
 
-    # 3. FOLLOW TUGMASINI TEKSHIRISH VA BOSISH
+    # 3. FOLLOW TUGMASINI BOSISH (Ruscha interfeys uchun moslangan)
     try:
         follow_btn_selector = (
-            'button:has-text("Follow"), '
-            'button:has-text("Подписаться"), '
-            'div[role="button"]:has-text("Follow"), '
-            'div[role="button"]:has-text("Подписаться")'
+            'header button:has-text("Подписаться"), '
+            'header div[role="button"]:has-text("Подписаться"), '
+            'header button:has-text("Follow"), '
+            'header div[role="button"]:has-text("Follow")'
         )
         follow_btn = page.query_selector(follow_btn_selector)
-        
-        # Agar Follow tugmasi bo'lsa va allaqachon "Following" bo'lmasa
-        if follow_btn and "Following" not in follow_btn.inner_text() and "Подписки" not in follow_btn.inner_text():
-            log("➕ LOG [INSTAGRAM]: Follow tugmasi bosilmoqda...")
-            follow_btn.evaluate("el => el.click()")
-            log("⏳ LOG [INSTAGRAM]: Follow bosildi. Message tugmasi chiqishi uchun 3 soniya kutilmoqda...")
-            page.wait_for_timeout(3000)
+        if follow_btn:
+            btn_text = follow_btn.inner_text().strip()
+            if btn_text in ["Подписаться", "Follow"]:
+                log("➕ LOG [INSTAGRAM]: Follow (Подписаться) tugmasi bosilmoqda...")
+                follow_btn.evaluate("el => el.click()")
+                log("⏳ LOG [INSTAGRAM]: 3 soniya kutilmoqda...")
+                page.wait_for_timeout(3000)
     except Exception as follow_err:
-        log(f"⚠️ LOG [INSTAGRAM]: Follow bosishda kichik og'ish (muhim emas): {follow_err}")
+        log(f"⚠️ LOG [INSTAGRAM]: Follow bosishda og'ish: {follow_err}")
 
-    # 4. MESSAGE TUGMASINI TOPISH VA BOSISH
-    log("🔍 LOG [INSTAGRAM]: Message tugmasi qidirilmoqda...")
+    # 4. MESSAGE TUGMASINI TOPISH VA BOSISH (Ruscha interfeys uchun moslangan)
+    log("🔍 LOG [INSTAGRAM]: Message (Отправить сообщение) tugmasi qidirilmoqda...")
     msg_btn_selector = (
-        'a[href*="/direct/t/"], '
-        'div[role="button"]:has-text("Message"), '
-        'button:has-text("Message"), '
-        'button:has-text("Отправить сообщение"), '
-        'div[role="button"]:has-text("Отправить сообщение")'
+        'header button:has-text("Отправить сообщение"), '
+        'header div[role="button"]:has-text("Отправить сообщение"), '
+        'header button:has-text("Message"), '
+        'header div[role="button"]:has-text("Message"), '
+        'a[href*="/direct/t/"]'
     )
     
     try:
-        msg_btn = page.wait_for_selector(msg_btn_selector, timeout=15000)
+        msg_btn = page.wait_for_selector(msg_btn_selector, timeout=12000)
         msg_btn.evaluate("el => el.click()")
         log("✅ LOG [INSTAGRAM]: Message tugmasi bosildi!")
     except Exception:
-        raise Exception("Profil topilmadi, yopiq (Private) yoki profil sozlamalarida DM xabarlar cheklangan.")
+        raise Exception("Profil yopiq (Private) yoki profil sozlamalarida DM xabarlar cheklangan.")
 
     page.wait_for_timeout(4000)
 
-    # 5. Yana bir bor 'Not Now' pop-up chiqsa yopish
+    # 5. Pop-up bo'lsa yopish
     try:
-        not_now_btn = page.query_selector('button:has-text("Not Now"), button:has-text("Сейчас не")')
+        not_now_btn = page.query_selector('button:has-text("Сейчас не"), button:has-text("Not Now")')
         if not_now_btn:
             not_now_btn.click()
             page.wait_for_timeout(1000)
     except Exception:
         pass
         
-    # 6. Xabarni kiritish va yuborish
+    # 6. Xabarni yozish va yuborish
     log("✍️ LOG [INSTAGRAM]: Xabar yozilmoqda...")
-    msg_selector = 'div[contenteditable="true"], div[aria-label="Message"], div[aria-label="Xabar..."], div[role="textbox"]'
+    msg_selector = 'div[contenteditable="true"], div[aria-label="Сообщение..."], div[aria-label="Xabar..."], div[aria-label="Message"], div[role="textbox"]'
     msg_input = page.wait_for_selector(msg_selector, timeout=15000)
     msg_input.fill(message_text)
     page.wait_for_timeout(1000)
