@@ -2,11 +2,15 @@ import os
 import json
 import time
 import random
+import socket
 from datetime import datetime, date
 import requests
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from playwright.sync_api import sync_playwright
+
+# Tarmoq qotib qolishini oldini olish uchun 30 soniyalik universal timeout
+socket.setdefaulttimeout(30)
 
 def log(text):
     print(text, flush=True)
@@ -78,16 +82,17 @@ def send_message_discord(user_id_or_name, message_text):
 
     headers = {
         "Authorization": token,
-        "Content-Type": "json",
+        "Content-Type": "application/json",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
 
     log(f"🌐 LOG [DISCORD]: {user_id_or_name} bilan DM kanal yaratilmoqda...")
-    # 1. User ID yoki Username orqali DM Kanal (DM Channel) ochish
+    # 1. User ID yoki Username orqali DM Kanal ochish
     dm_channel_req = requests.post(
         "https://discord.com/api/v9/users/@me/channels",
-        headers={"Authorization": token, "Content-Type": "application/json"},
-        json={"recipient_id": user_id_or_name}
+        headers=headers,
+        json={"recipient_id": user_id_or_name},
+        timeout=15
     )
 
     if dm_channel_req.status_code not in [200, 201]:
@@ -99,8 +104,9 @@ def send_message_discord(user_id_or_name, message_text):
     log(f"✉️ LOG [DISCORD]: DM Kanal (#{channel_id}) ga xabar yuborilmoqda...")
     msg_req = requests.post(
         f"https://discord.com/api/v9/channels/{channel_id}/messages",
-        headers={"Authorization": token, "Content-Type": "application/json"},
-        json={"content": message_text}
+        headers=headers,
+        json={"content": message_text},
+        timeout=15
     )
 
     if msg_req.status_code not in [200, 201]:
@@ -181,8 +187,13 @@ def run_outreach_loop():
         while True:
             try:
                 log(f"\n🔍 LOG [{datetime.now().strftime('%H:%M:%S')}]: Google Sheets qayta tekshirilmoqda...")
+                log("⏳ LOG: Limitlar tekshirilmoqda...")
                 limits_map = fetch_and_sync_limits()
+                
+                log("⏳ LOG: Google Sheets'dan leadlar ro'yxati yuklanmoqda...")
                 records = leads_sheet.get_all_records()
+                log("✅ LOG: Sheets ma'lumotlari muvaffaqiyatli yuklandi!")
+                
                 processed_in_this_pass = False
 
                 sent_usernames = {
@@ -225,7 +236,7 @@ def run_outreach_loop():
 
                         if plat_info['sent'] < plat_info['limit']:
                             
-                            # DISCORD UCHUN ALOHIDA TEZKOR YO'L (BRAUZERSIZ)
+                            # DISCORD UCHUN BRAUZERSIZ TEZKOR API YO'LI
                             if platform == "DISCORD":
                                 try:
                                     log(f"🚀 LOG: {user} ga DISCORD API orqali yuborish boshlandi...")
