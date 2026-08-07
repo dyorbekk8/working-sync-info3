@@ -388,4 +388,4 @@ def run_outreach_loop():
                 time.sleep(2 * 60)
 
 if __name__ == "__main__":
-    run_outreach_loop()s
+    run_outreach_loop()
