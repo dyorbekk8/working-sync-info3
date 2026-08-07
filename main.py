@@ -143,11 +143,12 @@ def send_message_instagram(page, user, message_text):
     log(f"🌐 LOG: https://www.instagram.com/{clean_user}/ profiliga kirilmoqda...")
     
     try:
-        page.goto(f"https://www.instagram.com/{clean_user}/", wait_until="commit", timeout=25000)
+        page.goto(f"https://www.instagram.com/{clean_user}/", wait_until="domcontentloaded", timeout=30000)
     except Exception as e:
         raise Exception(f"Instagram profiliga kirib bo'lmadi: {e}")
 
-    page.wait_for_timeout(3000)
+    # React komponentlari to'liq chizilishi uchun 5 soniya barqaror kutish
+    page.wait_for_timeout(5000)
 
     # 1. DIAGNOSTIKA: Cookie va URL redirection tekshiruvi
     current_url = page.url
@@ -165,7 +166,7 @@ def send_message_instagram(page, user, message_text):
     except Exception:
         pass
 
-    # 3. FAQAT RUSCHA "ПОДПИСАТЬСЯ" TUGMASINI KUTISH VA BOSISH
+    # 3. RUSCHA "ПОДПИСАТЬСЯ" TUGMASINI KUTISH VA BOSISH
     try:
         follow_btn_selector = (
             'button:has-text("Подписаться"), '
@@ -173,12 +174,12 @@ def send_message_instagram(page, user, message_text):
             'header button:has-text("Подписаться"), '
             'header div[role="button"]:has-text("Подписаться")'
         )
-        follow_btn = page.wait_for_selector(follow_btn_selector, timeout=5000)
+        follow_btn = page.wait_for_selector(follow_btn_selector, timeout=8000)
         if follow_btn:
             btn_text = follow_btn.inner_text().strip()
-            if "Подписаться" in btn_text:
+            if "Подписаться" in btn_text and "Подписки" not in btn_text:
                 log("➕ LOG [INSTAGRAM]: 'Подписаться' tugmasi topildi, bosilmoqda...")
-                follow_btn.evaluate("el => el.click()")
+                follow_btn.click(force=True)
                 log("⏳ LOG [INSTAGRAM]: Obuna bo'lindi! 'Отправить сообщение' tugmasi uchun 3 soniya kutilmoqda...")
                 page.wait_for_timeout(3000)
             else:
@@ -189,16 +190,16 @@ def send_message_instagram(page, user, message_text):
     # 4. "ОТПРАВИТЬ СООБЩЕНИЕ" TUGMASINI TOPISH VA BOSISH
     log("🔍 LOG [INSTAGRAM]: 'Отправить сообщение' tugmasi qidirilmoqda...")
     msg_btn_selector = (
+        'a[href*="/direct/t/"], '
         'button:has-text("Отправить сообщение"), '
         'div[role="button"]:has-text("Отправить сообщение"), '
         'header button:has-text("Отправить сообщение"), '
-        'header div[role="button"]:has-text("Отправить сообщение"), '
-        'a[href*="/direct/t/"]'
+        'header div[role="button"]:has-text("Отправить сообщение")'
     )
     
     try:
         msg_btn = page.wait_for_selector(msg_btn_selector, timeout=12000)
-        msg_btn.evaluate("el => el.click()")
+        msg_btn.click(force=True)
         log("✅ LOG [INSTAGRAM]: 'Отправить сообщение' tugmasi bosildi!")
     except Exception:
         raise Exception("Profil yopiq (Private) yoki profil sozlamalarida DM xabarlar cheklangan.")
@@ -347,7 +348,7 @@ def run_outreach_loop():
                                 elif platform == "INSTAGRAM":
                                     send_message_instagram(page, user, message_text)
                                 else:
-                                    log(f"⚠️ LOG: Qo'llab-quvvatlanmaydigan platforma ({platform}), o'tkazib yuboriildi.")
+                                    log(f"⚠️ LOG: Qo'llab-quvvatlanmaydigan platforma ({platform}), o'tkazib yuborildi.")
                                     leads_sheet.update_cell(idx, 4, "SKIPPED_UNSUPPORTED_PLATFORM")
                                     context.close()
                                     time.sleep(1)
