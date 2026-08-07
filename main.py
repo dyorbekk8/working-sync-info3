@@ -17,7 +17,7 @@ creds_dict = json.loads(os.getenv("GOOGLE_CREDENTIALS"))
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 
-doc = client.open_by_key(os.getenv("SPREADSHEET_ID")) # Yoki client.open("Outreach Leads")
+doc = client.open_by_key(os.getenv("SPREADSHEET_ID"))
 leads_sheet = doc.get_worksheet(0)
 limits_sheet = doc.get_worksheet(1)
 
@@ -81,17 +81,21 @@ def increment_today_sent(platform):
 
 def send_message_x(page, user, message_text):
     clean_user = clean_username(user)
-    log(f"🌐 LOG: X.com/messages/{clean_user} ochilmoqda...")
-    page.goto(f"https://x.com/messages/{clean_user}", wait_until="domcontentloaded", timeout=30000)
+    log(f"🌐 LOG: https://x.com/{clean_user} profiliga kirilmoqda...")
+    page.goto(f"https://x.com/{clean_user}", wait_until="domcontentloaded", timeout=30000)
     page.wait_for_timeout(3000)
     
-    # DM TextInput elementini topish
+    # DM tugmasini bosish
+    dm_btn = page.wait_for_selector('[data-testid="sendDMFromProfile"]', timeout=15000)
+    dm_btn.click()
+    page.wait_for_timeout(3000)
+
+    # DM yozish va yuborish
     msg_selector = '[data-testid="dmComposerTextInput"]'
     page.wait_for_selector(msg_selector, timeout=15000)
     page.fill(msg_selector, message_text)
     page.wait_for_timeout(1000)
     
-    # Send button elementini bosish yoki Enter tugmasi
     send_btn = page.query_selector('[data-testid="dmComposerSendButton"]')
     if send_btn and send_btn.is_enabled():
         send_btn.click()
@@ -101,11 +105,16 @@ def send_message_x(page, user, message_text):
 
 def send_message_instagram(page, user, message_text):
     clean_user = clean_username(user)
-    log(f"🌐 LOG: Instagram.com/direct/t/{clean_user}/ ochilmoqda...")
-    page.goto(f"https://www.instagram.com/direct/t/{clean_user}/", wait_until="domcontentloaded", timeout=30000)
+    log(f"🌐 LOG: https://www.instagram.com/{clean_user}/ profiliga kirilmoqda...")
+    page.goto(f"https://www.instagram.com/{clean_user}/", wait_until="domcontentloaded", timeout=30000)
+    page.wait_for_timeout(3000)
+
+    # "Message" tugmasini topish va bosish
+    msg_btn = page.wait_for_selector('div[role="button"]:has-text("Message"), button:has-text("Message"), button:has-text("Отправить сообщение")', timeout=15000)
+    msg_btn.click()
     page.wait_for_timeout(4000)
     
-    # Pop-up (Not Now / Notifications) chiqqan bo'lsa yopish
+    # Bildirishnoma (Not Now) pop-upini yopish
     try:
         not_now_btn = page.query_selector('button:has-text("Not Now"), button:has-text("Сейчас не")')
         if not_now_btn:
@@ -114,7 +123,7 @@ def send_message_instagram(page, user, message_text):
     except Exception:
         pass
         
-    msg_selector = 'div[contenteditable="true"], textarea[placeholder*="Message"]'
+    msg_selector = 'div[contenteditable="true"]'
     page.wait_for_selector(msg_selector, timeout=15000)
     page.fill(msg_selector, message_text)
     page.wait_for_timeout(1000)
@@ -130,14 +139,13 @@ def run_outreach_loop():
         proxy_url = os.getenv("PROXY_SERVER")
         log(f"🌐 LOG: Proxy server holati: {'Ulangan' if proxy_url else 'Ishlatilmayapti'}")
 
-        # RAILWAY RAM-INI TEJAYDIGAN VA QOTISHNI OLDINI OLUVCHI SOZLAMALAR
         browser = p.chromium.launch(
             headless=True,
             proxy={"server": proxy_url} if proxy_url else None,
             args=[
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage', # RAM xotira yetmay qolishini oldini oladi
+                '--disable-dev-shm-usage',
                 '--disable-accelerated-2d-canvas',
                 '--no-first-run',
                 '--no-zygote',
@@ -185,6 +193,11 @@ def run_outreach_loop():
                             log(f"🚀 LOG: {user} ga {platform} orqali yuborish boshlandi...")
 
                             cookies = parse_cookies(f"{platform}_COOKIES")
+                            if not cookies and platform in ["X", "INSTAGRAM"]:
+                                log(f"⚠️ LOG: {platform}_COOKIES topilmadi! O'tkazib yuborilmoqda.")
+                                leads_sheet.update_cell(idx, 4, "FAILED_NO_COOKIES")
+                                continue
+
                             context = browser.new_context()
                             if cookies:
                                 context.add_cookies(cookies)
@@ -198,8 +211,8 @@ def run_outreach_loop():
                                 elif platform == "INSTAGRAM":
                                     send_message_instagram(page, user, message_text)
                                 else:
-                                    log(f"⚠️ LOG: Noma'lum platforma ({platform}), o'tkazib yuborildi.")
-                                    leads_sheet.update_cell(idx, 4, "SKIPPED_UNKNOWN_PLATFORM")
+                                    log(f"⚠️ LOG: Qo'llab-quvvatlanmaydigan platforma ({platform}), o'tkazib yuborildi.")
+                                    leads_sheet.update_cell(idx, 4, "SKIPPED_UNSUPPORTED_PLATFORM")
                                     context.close()
                                     continue
 
