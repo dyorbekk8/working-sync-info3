@@ -141,10 +141,18 @@ def send_message_x(page, user, message_text):
 def send_message_instagram(page, user, message_text):
     clean_user = clean_username(user)
     log(f"🌐 LOG: https://www.instagram.com/{clean_user}/ profiliga kirilmoqda...")
-    page.goto(f"https://www.instagram.com/{clean_user}/", wait_until="domcontentloaded", timeout=45000)
+    
+    page.goto(f"https://www.instagram.com/{clean_user}/", wait_until="domcontentloaded", timeout=35000)
     page.wait_for_timeout(3000)
 
-    # 1. Kutilmagan Pop-up'larni (Bildirishnomalarni) yopish
+    # 1. DIAGNOSTIKA: Cookie tirikligini va URL redirection'ni tekshirish
+    current_url = page.url
+    if "accounts/login" in current_url:
+        raise Exception("INSTAGRAM_COOKIES eskirgan (Login sahifasiga otib yubordi). Railway Variable'da cookielarni yangilang!")
+    if "challenge" in current_url:
+        raise Exception("Instagram akkauntingizga Verification / Captcha kelgan! Akkauntga brauzerda kirib yechish kerak.")
+
+    # 2. Bildirishnoma va Pop-up'larni yopish
     try:
         popup_close = page.query_selector('button:has-text("Not Now"), button:has-text("Сейчас не"), button:has-text("Cancel")')
         if popup_close:
@@ -153,28 +161,26 @@ def send_message_instagram(page, user, message_text):
     except Exception:
         pass
 
-    # 2. Message tugmasini topish (Har qanday til va HTML strukturasi uchun)
+    # 3. Message tugmasini topish va bosish
     log("🔍 LOG [INSTAGRAM]: Message tugmasi qidirilmoqda...")
     msg_btn_selector = (
         'a[href*="/direct/t/"], '
         'div[role="button"]:has-text("Message"), '
         'button:has-text("Message"), '
         'button:has-text("Отправить сообщение"), '
-        'div[role="button"]:has-text("Отправить сообщение"), '
-        'header button'
+        'div[role="button"]:has-text("Отправить сообщение")'
     )
     
     try:
-        msg_btn = page.wait_for_selector(msg_btn_selector, timeout=20000)
-        # Javascript orqali to'g'ridan-to'g'ri bosish (Pop-up xalaqit bersa ham o'tib ketadi)
+        msg_btn = page.wait_for_selector(msg_btn_selector, timeout=15000)
         msg_btn.evaluate("el => el.click()")
         log("✅ LOG [INSTAGRAM]: Message tugmasi bosildi!")
-    except Exception as e:
-        raise Exception(f"Instagram profilida Message tugmasini bosib bo'lmadi (DM yopiq yoki profil cheklangan bo'lishi mumkin): {e}")
+    except Exception:
+        raise Exception("Profil topilmadi, yopiq (Private) yoki profil sozlamalarida DM xabarlar cheklangan.")
 
     page.wait_for_timeout(4000)
 
-    # 3. Yana bir bor 'Not Now' pop-up chiqsa yopish
+    # 4. Yana bir bor 'Not Now' pop-up chiqsa yopish
     try:
         not_now_btn = page.query_selector('button:has-text("Not Now"), button:has-text("Сейчас не")')
         if not_now_btn:
@@ -183,10 +189,10 @@ def send_message_instagram(page, user, message_text):
     except Exception:
         pass
         
-    # 4. Text Area'ga xabarni yozish
+    # 5. Xabarni kiritish va yuborish
     log("✍️ LOG [INSTAGRAM]: Xabar yozilmoqda...")
     msg_selector = 'div[contenteditable="true"], div[aria-label="Message"], div[aria-label="Xabar..."], div[role="textbox"]'
-    msg_input = page.wait_for_selector(msg_selector, timeout=20000)
+    msg_input = page.wait_for_selector(msg_selector, timeout=15000)
     msg_input.fill(message_text)
     page.wait_for_timeout(1000)
     page.keyboard.press("Enter")
