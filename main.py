@@ -76,9 +76,11 @@ def fetch_and_sync_limits():
 
 # ==================== DISCORD API MESSAGING ====================
 def send_message_discord(user_id_or_name, message_text):
-    token = os.getenv("DISCORD_TOKEN")
+    token = os.getenv("DISCORD_TOKEN", "").strip()
     if not token:
         raise Exception("DISCORD_TOKEN o'zgaruvchisi Railway'da topilmadi!")
+
+    clean_id = str(user_id_or_name).replace("@", "").strip()
 
     headers = {
         "Authorization": token,
@@ -86,12 +88,11 @@ def send_message_discord(user_id_or_name, message_text):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
 
-    log(f"🌐 LOG [DISCORD]: {user_id_or_name} bilan DM kanal yaratilmoqda...")
-    # 1. User ID yoki Username orqali DM Kanal ochish
+    log(f"🌐 LOG [DISCORD]: {clean_id} bilan DM kanal yaratilmoqda...")
     dm_channel_req = requests.post(
         "https://discord.com/api/v9/users/@me/channels",
         headers=headers,
-        json={"recipient_id": user_id_or_name},
+        json={"recipient_id": clean_id},
         timeout=15
     )
 
@@ -100,7 +101,6 @@ def send_message_discord(user_id_or_name, message_text):
 
     channel_id = dm_channel_req.json().get("id")
 
-    # 2. Xabarni yuborish
     log(f"✉️ LOG [DISCORD]: DM Kanal (#{channel_id}) ga xabar yuborilmoqda...")
     msg_req = requests.post(
         f"https://discord.com/api/v9/channels/{channel_id}/messages",
@@ -138,10 +138,10 @@ def send_message_x(page, user, message_text):
 def send_message_instagram(page, user, message_text):
     clean_user = clean_username(user)
     log(f"🌐 LOG: https://www.instagram.com/{clean_user}/ profiliga kirilmoqda...")
-    page.goto(f"https://www.instagram.com/{clean_user}/", wait_until="domcontentloaded", timeout=30000)
-    page.wait_for_timeout(3000)
+    page.goto(f"https://www.instagram.com/{clean_user}/", wait_until="commit", timeout=45000)
+    page.wait_for_timeout(4000)
 
-    msg_btn = page.wait_for_selector('div[role="button"]:has-text("Message"), button:has-text("Message"), button:has-text("Отправить сообщение")', timeout=15000)
+    msg_btn = page.wait_for_selector('div[role="button"]:has-text("Message"), button:has-text("Message"), button:has-text("Отправить сообщение")', timeout=20000)
     msg_btn.click()
     page.wait_for_timeout(4000)
     
@@ -154,7 +154,7 @@ def send_message_instagram(page, user, message_text):
         pass
         
     msg_selector = 'div[contenteditable="true"]'
-    page.wait_for_selector(msg_selector, timeout=15000)
+    page.wait_for_selector(msg_selector, timeout=20000)
     page.fill(msg_selector, message_text)
     page.wait_for_timeout(1000)
     page.keyboard.press("Enter")
@@ -275,7 +275,7 @@ def run_outreach_loop():
                                 context.add_cookies(cookies)
                             
                             page = context.new_page()
-                            page.set_default_timeout(30000)
+                            page.set_default_timeout(35000)
 
                             try:
                                 if platform == "X":
