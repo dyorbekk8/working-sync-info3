@@ -7,7 +7,6 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from playwright.sync_api import sync_playwright
 
-# Flush=True orqali har bir print() ni kuttirmasdan darhol ekranga chiqarish
 def log(text):
     print(text, flush=True)
 
@@ -27,57 +26,50 @@ MAX_DELAY = 15 * 60
 def parse_cookies(env_name):
     raw_data = os.getenv(env_name)
     if not raw_data:
-        log(f"⚠️ LOG: {env_name} o'zgaruvchisi topilmadi yoki bo'sh!")
         return []
-    parsed = json.loads(raw_data)
-    cookies = parsed if isinstance(parsed, list) else parsed.get("cookies", [])
-    
-    # Playwright sameSite formatini to'g'rilash (Strict, Lax, None)
-    for cookie in cookies:
-        if isinstance(cookie, dict) and "sameSite" in cookie and cookie["sameSite"]:
-            val = str(cookie["sameSite"]).capitalize()
-            if val in ["Strict", "Lax", "None"]:
-                cookie["sameSite"] = val
-            else:
-                del cookie["sameSite"]
-    return cookies
+    try:
+        parsed = json.loads(raw_data)
+        cookies = parsed if isinstance(parsed, list) else parsed.get("cookies", [])
+        for cookie in cookies:
+            if isinstance(cookie, dict) and "sameSite" in cookie and cookie["sameSite"]:
+                val = str(cookie["sameSite"]).capitalize()
+                if val in ["Strict", "Lax", "None"]:
+                    cookie["sameSite"] = val
+                else:
+                    del cookie["sameSite"]
+        return cookies
+    except Exception as e:
+        log(f"⚠️ LOG: {env_name} cookielarini o'qishda xatolik: {e}")
+        return []
 
 def clean_username(user):
     return str(user).replace("@", "").strip().lower()
 
-def check_and_update_limits():
+def fetch_and_sync_limits():
+    """Limitlarni 1 marta o'qib, kerak bo'lsa kunlik reset qiladi va xotirada qaytaradi."""
     today_str = str(date.today())
     limits_data = limits_sheet.get_all_records()
-    
+    limits_map = {}
+
     for idx, row in enumerate(limits_data, start=2):
+        platform = str(row["Platform"]).upper().strip()
         last_date = str(row["Last_Reset_Date"])
+        sent = int(row["Today_Sent"])
+        limit = int(row["Daily_Limit"])
+
         if last_date != today_str:
-            new_limit = int(row["Daily_Limit"]) + 1
-            limits_sheet.update_cell(idx, 2, new_limit)
+            sent = 0
             limits_sheet.update_cell(idx, 3, 0)
             limits_sheet.update_cell(idx, 4, today_str)
-            log(f"🔄 LOG: {row['Platform']} uchun yangi kun limitlari yangilandi: Limit={new_limit}")
+            time.sleep(1) # API quota tejash uchun
+            log(f"🔄 LOG: {platform} uchun yangi kun limitlari yangilandi: Limit={limit}")
 
-def can_send(platform):
-    check_and_update_limits()
-    limits_data = limits_sheet.get_all_records()
-    for row in limits_data:
-        if row["Platform"].upper() == platform.upper():
-            sent = int(row["Today_Sent"])
-            limit = int(row["Daily_Limit"])
-            log(f"📊 LOG [{platform}]: Bugun yuborildi={sent}/{limit}")
-            return sent < limit
-    log(f"⚠️ LOG: {platform} platformasi Sheet2 da topilmadi!")
-    return False
-
-def increment_today_sent(platform):
-    limits_data = limits_sheet.get_all_records()
-    for idx, row in enumerate(limits_data, start=2):
-        if row["Platform"].upper() == platform.upper():
-            current_sent = int(row["Today_Sent"])
-            limits_sheet.update_cell(idx, 3, current_sent + 1)
-            log(f"📈 LOG: {platform} hisoblagichi oshirildi: {current_sent + 1}")
-            break
+        limits_map[platform] = {
+            "row_idx": idx,
+            "sent": sent,
+            "limit": limit
+        }
+    return limits_map
 
 def send_message_x(page, user, message_text):
     clean_user = clean_username(user)
@@ -85,12 +77,10 @@ def send_message_x(page, user, message_text):
     page.goto(f"https://x.com/{clean_user}", wait_until="domcontentloaded", timeout=30000)
     page.wait_for_timeout(3000)
     
-    # DM tugmasini bosish
     dm_btn = page.wait_for_selector('[data-testid="sendDMFromProfile"]', timeout=15000)
     dm_btn.click()
     page.wait_for_timeout(3000)
 
-    # DM yozish va yuborish
     msg_selector = '[data-testid="dmComposerTextInput"]'
     page.wait_for_selector(msg_selector, timeout=15000)
     page.fill(msg_selector, message_text)
@@ -109,12 +99,10 @@ def send_message_instagram(page, user, message_text):
     page.goto(f"https://www.instagram.com/{clean_user}/", wait_until="domcontentloaded", timeout=30000)
     page.wait_for_timeout(3000)
 
-    # "Message" tugmasini topish va bosish
     msg_btn = page.wait_for_selector('div[role="button"]:has-text("Message"), button:has-text("Message"), button:has-text("Отправить сообщение")', timeout=15000)
     msg_btn.click()
     page.wait_for_timeout(4000)
     
-    # Bildirishnoma (Not Now) pop-upini yopish
     try:
         not_now_btn = page.query_selector('button:has-text("Not Now"), button:has-text("Сейчас не")')
         if not_now_btn:
@@ -156,7 +144,10 @@ def run_outreach_loop():
         while True:
             try:
                 log(f"\n🔍 LOG [{datetime.now().strftime('%H:%M:%S')}]: Google Sheets qayta tekshirilmoqda...")
-                check_and_update_limits()
+                
+                # Limitlarni 1 marta xotiraga yuklaymiz (Google Sheets 429 xatoligini oldini oladi)
+                limits_map = fetch_and_sync_limits()
+                
                 records = leads_sheet.get_all_records()
                 processed_in_this_pass = False
 
@@ -182,22 +173,30 @@ def run_outreach_loop():
                             log(f"⏭️ LOG [DUPLICATE]: {user} allaqachon mavjud! O'tkazib yuborildi.")
                             leads_sheet.update_cell(idx, 4, "SKIPPED_DUPLICATE")
                             leads_sheet.update_cell(idx, 5, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                            time.sleep(1)
                             continue
 
                         if not message_text:
                             log(f"⚠️ LOG [BO'SH XABAR]: {user} uchun 'message' ustuni bo'sh. SKIPPED.")
                             leads_sheet.update_cell(idx, 4, "SKIPPED_NO_MESSAGE")
+                            time.sleep(1)
                             continue
 
-                        if can_send(platform):
-                            log(f"🚀 LOG: {user} ga {platform} orqali yuborish boshlandi...")
+                        # Limitni local xotiradan tekshiramiz
+                        plat_info = limits_map.get(platform)
+                        if not plat_info:
+                            log(f"⚠️ LOG: {platform} platformasi Sheet2 da topilmadi, o'tkazib yuborilmoqda.")
+                            continue
 
+                        log(f"📊 LOG [{platform}]: Bugun yuborildi={plat_info['sent']}/{plat_info['limit']}")
+
+                        if plat_info['sent'] < plat_info['limit']:
                             cookies = parse_cookies(f"{platform}_COOKIES")
                             if not cookies and platform in ["X", "INSTAGRAM"]:
                                 log(f"⚠️ LOG: {platform}_COOKIES topilmadi! O'tkazib yuborilmoqda.")
-                                leads_sheet.update_cell(idx, 4, "FAILED_NO_COOKIES")
                                 continue
 
+                            log(f"🚀 LOG: {user} ga {platform} orqali yuborish boshlandi...")
                             context = browser.new_context()
                             if cookies:
                                 context.add_cookies(cookies)
@@ -214,14 +213,18 @@ def run_outreach_loop():
                                     log(f"⚠️ LOG: Qo'llab-quvvatlanmaydigan platforma ({platform}), o'tkazib yuborildi.")
                                     leads_sheet.update_cell(idx, 4, "SKIPPED_UNSUPPORTED_PLATFORM")
                                     context.close()
+                                    time.sleep(1)
                                     continue
 
-                                # Faqat muvaffaqiyatli yuborilganda SENT belgilash
+                                # Sheets va local limitlarni yangilash
                                 leads_sheet.update_cell(idx, 4, "SENT")
                                 leads_sheet.update_cell(idx, 5, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
                                 
+                                plat_info['sent'] += 1
+                                limits_sheet.update_cell(plat_info['row_idx'], 3, plat_info['sent'])
+                                log(f"📈 LOG: {platform} hisoblagichi oshirildi: {plat_info['sent']}")
+
                                 sent_usernames.add(clean_user)
-                                increment_today_sent(platform)
                                 processed_in_this_pass = True
 
                                 wait_time = random.randint(MIN_DELAY, MAX_DELAY)
@@ -235,6 +238,7 @@ def run_outreach_loop():
                                 leads_sheet.update_cell(idx, 4, "FAILED")
                                 leads_sheet.update_cell(idx, 5, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
                                 context.close()
+                                time.sleep(1)
                         else:
                             log(f"🛑 LOG [Limit To'lgan]: Bugun {platform} uchun limit yetarli emas. Skipped: {user}")
 
