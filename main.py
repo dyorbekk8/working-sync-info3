@@ -347,7 +347,7 @@ def run_outreach_loop():
                                 elif platform == "INSTAGRAM":
                                     send_message_instagram(page, user, message_text)
                                 else:
-                                    log(f"⚠️ LOG: Qo'llab-quvvatlanmaydigan platforma ({platform}), o'tkazib yuborildi.")
+                                    log(f"⚠️ LOG: Qo'llab-quvvatlanmaydigan platforma ({platform}), o'tkazib yuboriildi.")
                                     leads_sheet.update_cell(idx, 4, "SKIPPED_UNSUPPORTED_PLATFORM")
                                     context.close()
                                     time.sleep(1)
