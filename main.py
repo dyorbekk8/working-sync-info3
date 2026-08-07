@@ -142,7 +142,6 @@ def send_message_instagram(page, user, message_text):
     clean_user = clean_username(user)
     log(f"🌐 LOG: https://www.instagram.com/{clean_user}/ profiliga kirilmoqda...")
     
-    # wait_until="commit" orqali proxy sekinligida og'ir fayllar yuklanishini kutmay darhol davom etadi
     try:
         page.goto(f"https://www.instagram.com/{clean_user}/", wait_until="commit", timeout=25000)
     except Exception as e:
@@ -150,7 +149,7 @@ def send_message_instagram(page, user, message_text):
 
     page.wait_for_timeout(4000)
 
-    # 1. DIAGNOSTIKA: Cookie tirikligini va URL redirection'ni tekshirish
+    # 1. DIAGNOSTIKA: Cookie va URL redirection tekshiruvi
     current_url = page.url
     if "accounts/login" in current_url:
         raise Exception("INSTAGRAM_COOKIES eskirgan (Login sahifasiga otib yubordi). Railway Variable'da cookielarni yangilang!")
@@ -166,7 +165,26 @@ def send_message_instagram(page, user, message_text):
     except Exception:
         pass
 
-    # 3. Message tugmasini topish va bosish
+    # 3. FOLLOW TUGMASINI TEKSHIRISH VA BOSISH
+    try:
+        follow_btn_selector = (
+            'button:has-text("Follow"), '
+            'button:has-text("Подписаться"), '
+            'div[role="button"]:has-text("Follow"), '
+            'div[role="button"]:has-text("Подписаться")'
+        )
+        follow_btn = page.query_selector(follow_btn_selector)
+        
+        # Agar Follow tugmasi bo'lsa va allaqachon "Following" bo'lmasa
+        if follow_btn and "Following" not in follow_btn.inner_text() and "Подписки" not in follow_btn.inner_text():
+            log("➕ LOG [INSTAGRAM]: Follow tugmasi bosilmoqda...")
+            follow_btn.evaluate("el => el.click()")
+            log("⏳ LOG [INSTAGRAM]: Follow bosildi. Message tugmasi chiqishi uchun 3 soniya kutilmoqda...")
+            page.wait_for_timeout(3000)
+    except Exception as follow_err:
+        log(f"⚠️ LOG [INSTAGRAM]: Follow bosishda kichik og'ish (muhim emas): {follow_err}")
+
+    # 4. MESSAGE TUGMASINI TOPISH VA BOSISH
     log("🔍 LOG [INSTAGRAM]: Message tugmasi qidirilmoqda...")
     msg_btn_selector = (
         'a[href*="/direct/t/"], '
@@ -185,7 +203,7 @@ def send_message_instagram(page, user, message_text):
 
     page.wait_for_timeout(4000)
 
-    # 4. Yana bir bor 'Not Now' pop-up chiqsa yopish
+    # 5. Yana bir bor 'Not Now' pop-up chiqsa yopish
     try:
         not_now_btn = page.query_selector('button:has-text("Not Now"), button:has-text("Сейчас не")')
         if not_now_btn:
@@ -194,7 +212,7 @@ def send_message_instagram(page, user, message_text):
     except Exception:
         pass
         
-    # 5. Xabarni kiritish va yuborish
+    # 6. Xabarni kiritish va yuborish
     log("✍️ LOG [INSTAGRAM]: Xabar yozilmoqda...")
     msg_selector = 'div[contenteditable="true"], div[aria-label="Message"], div[aria-label="Xabar..."], div[role="textbox"]'
     msg_input = page.wait_for_selector(msg_selector, timeout=15000)
