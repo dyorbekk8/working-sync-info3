@@ -82,13 +82,16 @@ def send_message_discord(user_id_or_name, message_text):
 
     clean_id = str(user_id_or_name).replace("@", "").strip()
 
+    if not clean_id.isdigit():
+        raise Exception(f"Discord User ID noto'g'ri ('{clean_id}'). Sheetda Username emas, raqamli Discord User ID (Snowflake) kiritilishi shart.")
+
     headers = {
         "Authorization": token,
         "Content-Type": "application/json",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
 
-    log(f"🌐 LOG [DISCORD]: {clean_id} bilan DM kanal yaratilmoqda...")
+    log(f"🌐 LOG [DISCORD]: User ID ({clean_id}) bilan DM kanal yaratilmoqda...")
     dm_channel_req = requests.post(
         "https://discord.com/api/v9/users/@me/channels",
         headers=headers,
@@ -116,15 +119,15 @@ def send_message_discord(user_id_or_name, message_text):
 def send_message_x(page, user, message_text):
     clean_user = clean_username(user)
     log(f"🌐 LOG: https://x.com/{clean_user} profiliga kirilmoqda...")
-    page.goto(f"https://x.com/{clean_user}", wait_until="domcontentloaded", timeout=30000)
+    page.goto(f"https://x.com/{clean_user}", wait_until="domcontentloaded", timeout=35000)
     page.wait_for_timeout(3000)
     
-    dm_btn = page.wait_for_selector('[data-testid="sendDMFromProfile"]', timeout=15000)
+    dm_btn = page.wait_for_selector('[data-testid="sendDMFromProfile"]', timeout=20000)
     dm_btn.click()
     page.wait_for_timeout(3000)
 
     msg_selector = '[data-testid="dmComposerTextInput"]'
-    page.wait_for_selector(msg_selector, timeout=15000)
+    page.wait_for_selector(msg_selector, timeout=20000)
     page.fill(msg_selector, message_text)
     page.wait_for_timeout(1000)
     
@@ -138,13 +141,40 @@ def send_message_x(page, user, message_text):
 def send_message_instagram(page, user, message_text):
     clean_user = clean_username(user)
     log(f"🌐 LOG: https://www.instagram.com/{clean_user}/ profiliga kirilmoqda...")
-    page.goto(f"https://www.instagram.com/{clean_user}/", wait_until="commit", timeout=45000)
+    page.goto(f"https://www.instagram.com/{clean_user}/", wait_until="domcontentloaded", timeout=45000)
+    page.wait_for_timeout(3000)
+
+    # 1. Kutilmagan Pop-up'larni (Bildirishnomalarni) yopish
+    try:
+        popup_close = page.query_selector('button:has-text("Not Now"), button:has-text("Сейчас не"), button:has-text("Cancel")')
+        if popup_close:
+            popup_close.click()
+            page.wait_for_timeout(1000)
+    except Exception:
+        pass
+
+    # 2. Message tugmasini topish (Har qanday til va HTML strukturasi uchun)
+    log("🔍 LOG [INSTAGRAM]: Message tugmasi qidirilmoqda...")
+    msg_btn_selector = (
+        'a[href*="/direct/t/"], '
+        'div[role="button"]:has-text("Message"), '
+        'button:has-text("Message"), '
+        'button:has-text("Отправить сообщение"), '
+        'div[role="button"]:has-text("Отправить сообщение"), '
+        'header button'
+    )
+    
+    try:
+        msg_btn = page.wait_for_selector(msg_btn_selector, timeout=20000)
+        # Javascript orqali to'g'ridan-to'g'ri bosish (Pop-up xalaqit bersa ham o'tib ketadi)
+        msg_btn.evaluate("el => el.click()")
+        log("✅ LOG [INSTAGRAM]: Message tugmasi bosildi!")
+    except Exception as e:
+        raise Exception(f"Instagram profilida Message tugmasini bosib bo'lmadi (DM yopiq yoki profil cheklangan bo'lishi mumkin): {e}")
+
     page.wait_for_timeout(4000)
 
-    msg_btn = page.wait_for_selector('div[role="button"]:has-text("Message"), button:has-text("Message"), button:has-text("Отправить сообщение")', timeout=20000)
-    msg_btn.click()
-    page.wait_for_timeout(4000)
-    
+    # 3. Yana bir bor 'Not Now' pop-up chiqsa yopish
     try:
         not_now_btn = page.query_selector('button:has-text("Not Now"), button:has-text("Сейчас не")')
         if not_now_btn:
@@ -153,9 +183,11 @@ def send_message_instagram(page, user, message_text):
     except Exception:
         pass
         
-    msg_selector = 'div[contenteditable="true"]'
-    page.wait_for_selector(msg_selector, timeout=20000)
-    page.fill(msg_selector, message_text)
+    # 4. Text Area'ga xabarni yozish
+    log("✍️ LOG [INSTAGRAM]: Xabar yozilmoqda...")
+    msg_selector = 'div[contenteditable="true"], div[aria-label="Message"], div[aria-label="Xabar..."], div[role="textbox"]'
+    msg_input = page.wait_for_selector(msg_selector, timeout=20000)
+    msg_input.fill(message_text)
     page.wait_for_timeout(1000)
     page.keyboard.press("Enter")
     page.wait_for_timeout(3000)
@@ -258,7 +290,8 @@ def run_outreach_loop():
                                     time.sleep(wait_time)
                                 except Exception as disc_err:
                                     log(f"❌ LOG [DISCORD XATOLIK]: {user} uchun xabar yuborilmadi: {disc_err}")
-                                    leads_sheet.update_cell(idx, 4, "FAILED")
+                                    fail_status = "FAILED_INVALID_ID" if "Discord User ID" in str(disc_err) else "FAILED"
+                                    leads_sheet.update_cell(idx, 4, fail_status)
                                     leads_sheet.update_cell(idx, 5, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
                                     time.sleep(1)
                                 continue
