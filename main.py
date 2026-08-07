@@ -142,8 +142,13 @@ def send_message_instagram(page, user, message_text):
     clean_user = clean_username(user)
     log(f"🌐 LOG: https://www.instagram.com/{clean_user}/ profiliga kirilmoqda...")
     
-    page.goto(f"https://www.instagram.com/{clean_user}/", wait_until="domcontentloaded", timeout=35000)
-    page.wait_for_timeout(3000)
+    # wait_until="commit" orqali proxy sekinligida og'ir fayllar yuklanishini kutmay darhol davom etadi
+    try:
+        page.goto(f"https://www.instagram.com/{clean_user}/", wait_until="commit", timeout=25000)
+    except Exception as e:
+        raise Exception(f"Instagram profiliga kirib bo'lmadi (Proxy sekin yoki profil o'chirilgan): {e}")
+
+    page.wait_for_timeout(4000)
 
     # 1. DIAGNOSTIKA: Cookie tirikligini va URL redirection'ni tekshirish
     current_url = page.url
